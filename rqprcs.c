@@ -100,7 +100,7 @@ void prcsReq(int command, char answer[ANSWER_SIZE], int logged[100], int fd)
 					bzero(answer, ANSWER_SIZE);
 					
 					if(corect == 0)
-						strcpy(answer, "Comanda este de forma: \"create account username password\" unde username si password sunt alfanumerice si au lungimea maxim 20");
+						strcpy(answer, "Comanda este de forma: \"create account username password\" unde username si password sunt alfanumerice si au lungimea maxim 20.");
 					else
 					{
 						//verificare daca exista username-ul
@@ -119,6 +119,7 @@ void prcsReq(int command, char answer[ANSWER_SIZE], int logged[100], int fd)
 							strcpy(answer, "Numele de utilizator exista deja");
 							break;
 						}
+						
 						//adaugam username si password in baza de date daca nu exista deja
 						//selectam id-ul maxim pentru a obtine urmatorul id
 						strcpy(sql, "select max(id) from users;");
@@ -130,6 +131,7 @@ void prcsReq(int command, char answer[ANSWER_SIZE], int logged[100], int fd)
 							break;
 						}
 						result[0]++;
+						
 						//formam comanda catre database pentru a insera informatiile despre noul cont
 						sprintf(number, "%d", result[0]);
 						strcpy(sql, "insert into users values(");
@@ -146,6 +148,7 @@ void prcsReq(int command, char answer[ANSWER_SIZE], int logged[100], int fd)
 							strcpy(answer, "Eroare creare utilizator");
 							break;
 						}
+						
 						//contul a fost creat asa ca setam clientul ca logat si trimitem confirmare
 						logged[fd] = 1;
 						strcpy(answer, "Contul a fost creat cu succes!");
@@ -155,6 +158,83 @@ void prcsReq(int command, char answer[ANSWER_SIZE], int logged[100], int fd)
 				break;
 		case 2: if(logged[fd] == 1)
 					strcpy(answer, "Sunteti deja in cont.");
+				else
+				{
+					corect = 1;
+					//verificam ca inputul este in forma corecta (log in username password\n)
+					if(answer[6] != ' ') corect = 0;
+					k = 7;
+					while(corect == 1 && alfanumeric(answer[k]) == 1)
+					{
+						//lungimea este maxim 20
+						if(k - 7 > 20)
+							corect = 0;
+						//copiem caracterele usernameului pentru verificare
+						else
+						{
+							username[k - 7] = answer[k];
+							k++;
+						}
+					}
+					if(corect == 1 && answer[k] == ' ')
+					{
+						username[k - 7] = '\0';
+						k++;
+						index = k;
+					}
+					else corect = 0;
+					while(corect == 1 && alfanumeric(answer[k]) == 1)
+					{
+						//lungimea este maxim 20
+						if(k - index > 20)
+							corect = 0;
+						//copiem caracterele parolei pentru verificare
+						else
+						{
+							password[k - index] = answer[k];
+							k++;
+						}
+					}
+					if(corect == 1 && answer[k] == '\n')
+					{
+						password[k - index] = '\0';
+						k++;
+					}
+					else corect = 0;
+					
+					//resetam answer
+					bzero(answer, ANSWER_SIZE);
+					
+					if(corect == 0)
+						strcpy(answer, "Comanda este de forma: \"log in username password\"");
+					else
+					{
+						//verificare daca exista contul
+						strcpy(sql, "select id from users where username = '");
+						strcat(sql, username);
+						strcat(sql, "' and password = '");
+						strcat(sql, password);
+						strcat(sql, "';");
+						exit_code = sqlite3_exec(DB, sql, verify_existence, result, NULL);
+						if(exit_code != SQLITE_OK)
+						{
+							perror("Error on select from users\n");
+							strcpy(answer, "Eroare conectare");
+							break;
+						}
+						if(result[0] == 1)
+						{
+							logged[fd] = 1;
+							strcpy(answer, "Conectarea a avut succes!");
+							break;
+						}
+						else
+						{
+							strcpy(answer, "Nume de utilizator sau parola incorecte");
+							break;
+						}
+					}
+				}
 				break;
 		case 3: if(logged[fd] == 0)
 					strcpy(answer, "Pentru a executa comanda 'info cont' trebuie sa fiti logat.");

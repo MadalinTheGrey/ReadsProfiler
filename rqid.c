@@ -19,7 +19,7 @@ int idReq(int fd, char req[REQ_SIZE])
 
 	if(strncmp(req, "create account", 14) == 0)
 		return 1;
-	else if(strcmp(req, "log in\n") == 0)
+	else if(strncmp(req, "log in", 6) == 0)
 		return 2;
 	else if(strcmp(req, "info cont\n") == 0)
 		return 3;
