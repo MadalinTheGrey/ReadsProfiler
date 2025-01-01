@@ -71,6 +71,9 @@ int main (int argc, char *argv[])
 			return errno;
 		}
 		
+		//resetam msg pentru a citi mesajul de la server
+		bzero(msg, MSG_SIZE);
+		
 		/* citirea raspunsului dat de server 
 		(apel blocant pina cind serverul raspunde) */
 		if (read (sd, msg, MSG_SIZE) < 0)
