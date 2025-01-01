@@ -22,7 +22,7 @@ static int verify_existence(void *result, int count, char **data, char **columns
 	return 0;
 }
 
-static int get_max(void *result, int count, char **data, char **columns)
+static int get_column0_number(void *result, int count, char **data, char **columns)
 {
 	int *x = result;
 	if(sscanf(data[0], "%d", x) == EOF)
@@ -33,11 +33,18 @@ static int get_max(void *result, int count, char **data, char **columns)
 	return 0;
 }
 
+static int get_col0_string(void *result, int count, char **data, char **columns)
+{
+	char *s = result;
+	strcpy(s, data[0]);
+	return 0;
+}
+
 void prcsReq(int command, char answer[ANSWER_SIZE], int logged[100], int fd)
 {
 	sqlite3* DB;
 	int exit_code = 0, corect, k, index, *result = malloc(sizeof(int));
-	char sql[ANSWER_SIZE], username[21], password[21], number[21];
+	char sql[ANSWER_SIZE], username[21], password[21], number[21], *char_result = malloc(200);
 	
 	exit_code = sqlite3_open(NUME_DB, &DB);
 	if(exit_code)
@@ -46,11 +53,15 @@ void prcsReq(int command, char answer[ANSWER_SIZE], int logged[100], int fd)
 		return;
 	}
 	
+	//pregatim vectorul sql pentru transmiterea de comenzi
 	bzero(sql, ANSWER_SIZE);
+	bzero(number, 21);
 	
+	//identificam comanda
 	switch(command)
 	{
-		case 1: if(logged[fd] == 1)
+		//create account
+		case 1: if(logged[fd] != 0)
 					strcpy(answer, "Sunteti deja in cont.");
 				else
 				{
@@ -104,9 +115,7 @@ void prcsReq(int command, char answer[ANSWER_SIZE], int logged[100], int fd)
 					else
 					{
 						//verificare daca exista username-ul
-						strcpy(sql, "select id from users where username = '");
-						strcat(sql, username);
-						strcat(sql, "';");
+						sprintf(sql, "select id from users where username = '%s';", username);
 						exit_code = sqlite3_exec(DB, sql, verify_existence, result, NULL);
 						if(exit_code != SQLITE_OK)
 						{
@@ -123,7 +132,7 @@ void prcsReq(int command, char answer[ANSWER_SIZE], int logged[100], int fd)
 						//adaugam username si password in baza de date daca nu exista deja
 						//selectam id-ul maxim pentru a obtine urmatorul id
 						strcpy(sql, "select max(id) from users;");
-						exit_code = sqlite3_exec(DB, sql, get_max, result, NULL);
+						exit_code = sqlite3_exec(DB, sql, get_column0_number, result, NULL);
 						if(exit_code != SQLITE_OK)
 						{
 							perror("Error on select from users\n");
@@ -133,14 +142,7 @@ void prcsReq(int command, char answer[ANSWER_SIZE], int logged[100], int fd)
 						result[0]++;
 						
 						//formam comanda catre database pentru a insera informatiile despre noul cont
-						sprintf(number, "%d", result[0]);
-						strcpy(sql, "insert into users values(");
-						strcat(sql, number);
-						strcat(sql, ",'");
-						strcat(sql, username);
-						strcat(sql, "','");
-						strcat(sql, password);
-						strcat(sql, "');");
+						sprintf(sql, "insert into users values(%d, '%s', '%s');", result[0], username, password);
 						exit_code = sqlite3_exec(DB, sql, NULL, NULL, NULL);
 						if(exit_code != SQLITE_OK)
 						{
@@ -149,14 +151,15 @@ void prcsReq(int command, char answer[ANSWER_SIZE], int logged[100], int fd)
 							break;
 						}
 						
-						//contul a fost creat asa ca setam clientul ca logat si trimitem confirmare
-						logged[fd] = 1;
+						//contul a fost creat asa ca salvam id-ul si trimitem confirmare
+						logged[fd] = result[0];
 						strcpy(answer, "Contul a fost creat cu succes!");
 						free(result);
 					}
 				}
 				break;
-		case 2: if(logged[fd] == 1)
+		//log in
+		case 2: if(logged[fd] != 0)
 					strcpy(answer, "Sunteti deja in cont.");
 				else
 				{
@@ -210,11 +213,7 @@ void prcsReq(int command, char answer[ANSWER_SIZE], int logged[100], int fd)
 					else
 					{
 						//verificare daca exista contul
-						strcpy(sql, "select id from users where username = '");
-						strcat(sql, username);
-						strcat(sql, "' and password = '");
-						strcat(sql, password);
-						strcat(sql, "';");
+						sprintf(sql, "select id from users where username = '%s' and password = '%s';", username, password);
 						exit_code = sqlite3_exec(DB, sql, verify_existence, result, NULL);
 						if(exit_code != SQLITE_OK)
 						{
@@ -222,12 +221,23 @@ void prcsReq(int command, char answer[ANSWER_SIZE], int logged[100], int fd)
 							strcpy(answer, "Eroare conectare");
 							break;
 						}
+						//contul a fost gasit -> confirmam conectarea
 						if(result[0] == 1)
 						{
-							logged[fd] = 1;
+							//cautam id-ul utilizatorului acum ca stim ca exista pentru a-l retine
+							sprintf(sql, "select id from users where username = '%s';", username);
+							exit_code = sqlite3_exec(DB, sql, get_column0_number, result, NULL);
+							if(exit_code != SQLITE_OK)
+							{
+								perror("Error on select from users\n");
+								strcpy(answer, "Eroare conectare");
+								break;
+							}
+							logged[fd] = result[0];
 							strcpy(answer, "Conectarea a avut succes!");
 							break;
 						}
+						//contul nu exista
 						else
 						{
 							strcpy(answer, "Nume de utilizator sau parola incorecte");
@@ -236,25 +246,48 @@ void prcsReq(int command, char answer[ANSWER_SIZE], int logged[100], int fd)
 					}
 				}
 				break;
+		//info cont
 		case 3: if(logged[fd] == 0)
-					strcpy(answer, "Pentru a executa comanda 'info cont' trebuie sa fiti logat.");
+					strcpy(answer, "Pentru a executa comanda 'info cont' trebuie sa fiti conectat.");
+				else
+				{
+					//preluam numele de utilizator si parola din database 
+					sprintf(sql, "select username from users where id = %d;", logged[fd]);
+					exit_code = sqlite3_exec(DB, sql, get_col0_string, char_result, NULL);
+					if(exit_code != SQLITE_OK)
+					{
+						perror("Error on select from users\n");
+						strcpy(answer, "Eroare conectare");
+						break;
+					}
+					sprintf(answer, "username: %s\n", char_result);
+					//de trimis si rating-urile oferite
+				}
 				break;
+		//cautare
 		case 4: strcpy(answer, "Comanda identificata: 4. cautare");
 				break;
+		//info carte
 		case 5: strcpy(answer, "Comanda identificata: 5. info carte");
 				break;
+		//rate
 		case 6: if(logged[fd] == 0)
-					strcpy(answer, "Pentru a executa comanda 'rate' trebuie sa fiti logat.");
+					strcpy(answer, "Pentru a executa comanda 'rate' trebuie sa fiti conectat.");
 				break;
+		//descarcare
 		case 7: strcpy(answer, "Comanda identificata: 7. descarcare");
 				break;
+		//recomandari
 		case 8: if(logged[fd] == 0)
-					strcpy(answer, "Pentru a executa comanda 'recomandari' trebuie sa fiti logat.");
+					strcpy(answer, "Pentru a executa comanda 'recomandari' trebuie sa fiti conectat.");
 				break;
+		//log out
 		case 9: logged[fd] = 0;
 				strcpy(answer, "Utilizator delogat cu succes!");
 				break;
-		default: strcpy(answer, "Comanda nu exista");
+		default: strcpy(answer, "Comanda nu exista.");
 	}
+	free(result);
+	free(char_result);
 	sqlite3_close(DB);
 }

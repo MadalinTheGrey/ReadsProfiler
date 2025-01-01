@@ -32,7 +32,7 @@ int main ()
 	int len;			/* lungimea structurii sockaddr_in */
 	int command; //number that helps identify which command should be executed
 	char answer[ANSWER_SIZE]; //saves the result of prcsReq() to send to the client
-	int logged[100]; //remembers which clients are logged in
+	int logged[100]; //remembers which clients are logged in and saves their id
 
 	/* creare socket */
 	if ((sd = socket (AF_INET, SOCK_STREAM, 0)) == -1)
