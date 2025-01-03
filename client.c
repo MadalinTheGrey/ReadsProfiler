@@ -8,7 +8,9 @@
 #include <netdb.h>
 #include <string.h>
 
-#define MSG_SIZE 500
+#define MSG_SIZE 512
+//marks the end of the message from the server
+#define EOM "01END10"
 
 /* codul de eroare returnat de anumite apeluri */
 extern int errno;
@@ -20,8 +22,9 @@ int main (int argc, char *argv[])
 {
   int sd;			// descriptorul de socket
   int connection = 1; //determines if the client is still sending requests (1 if yes, 0 otherwise)
+  int exit_code, len;
   struct sockaddr_in server;	// structura folosita pentru conectare 
-  char msg[MSG_SIZE];		// folosit pentru comunicarea cu serverul
+  char msg[MSG_SIZE], *s;		// folosit pentru comunicarea cu serverul
 
   /* exista toate argumentele in linia de comanda? */
   if (argc != 3)
@@ -55,7 +58,7 @@ int main (int argc, char *argv[])
       perror ("[client]Eroare la connect().\n");
       return errno;
     }
-
+	
 	while(connection == 1)
 	{
 		/* citirea mesajului */
@@ -76,17 +79,29 @@ int main (int argc, char *argv[])
 		
 		/* citirea raspunsului dat de server 
 		(apel blocant pina cind serverul raspunde) */
-		if (read (sd, msg, MSG_SIZE) < 0)
+		printf("[server]");
+		while ((exit_code = read (sd, msg, MSG_SIZE)))
 		{
-			perror ("[client]Eroare la read() de la server.\n");
-			return errno;
+			if(exit_code < 0)
+			{
+				perror("[client] Error on read\n");
+			}
+			if((s = strstr(msg, EOM)) != NULL)
+			{
+				//determine length of message without EOM
+				len = strlen(msg) - 7;
+				if(len == 0) break; //string can contain just the EOM in which case we end the loop right away
+				//if command 9 has been confirmed we end the request loop
+				if(strncmp(msg, "Utilizator delogat cu succes!", len) == 0)
+					connection = 0;
+				//print the message without the EOM and end the read loop
+				printf("%.*s", len, msg);
+				break;
+			}
+			else printf("%s", msg);
+			bzero(msg, MSG_SIZE);
 		}
-		/* afisam mesajul primit */
-		printf ("[client]Mesajul primit este: %s\n", msg);
-		
-		//if command 9 has been confirmed we end the request loop
-		if(strcmp(msg, "Utilizator delogat cu succes!") == 0)
-			connection = 0;
+		printf ("\n");
 	}
 
   /* inchidem conexiunea, am terminat */

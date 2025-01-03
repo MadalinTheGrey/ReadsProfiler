@@ -9,10 +9,9 @@
 #include <string.h>
 #include "rqid.h"
 #include "rqprcs.h"
-#include "sndans.h"
 
 #define PORT 2025
-#define ANSWER_SIZE 500
+#define ANSWER_SIZE 512
 
 /* codul de eroare returnat de anumite apeluri */
 extern int errno;
@@ -122,7 +121,6 @@ int main ()
 			/* este un socket de citire pregatit? */
 			if (fd != sd && FD_ISSET (fd, &readfds))
 			{
-				bzero(answer, ANSWER_SIZE);
 				command = idReq(fd, answer);
 				prcsReq(command, answer, logged, fd);
 				sendRes(fd, answer);

@@ -1,4 +1,5 @@
 #include "rqprcs.h"
+#include "sndans.h"
 #include <string.h>
 #include <sqlite3.h>
 #include <errno.h>
@@ -6,7 +7,8 @@
 #include <stdlib.h>
 
 #define NUME_DB "readsprofiler.db"
-#define ANSWER_SIZE 500
+#define ANSWER_SIZE 512
+#define EOM "01END10"
 
 int alfanumeric(char ch)
 {
@@ -33,6 +35,7 @@ static int get_column0_number(void *result, int count, char **data, char **colum
 	return 0;
 }
 
+
 static int get_col0_string(void *result, int count, char **data, char **columns)
 {
 	char *s = result;
@@ -56,7 +59,8 @@ void prcsReq(int command, char answer[ANSWER_SIZE], int logged[100], int fd)
 	//pregatim vectorul sql pentru transmiterea de comenzi
 	bzero(sql, ANSWER_SIZE);
 	bzero(number, 21);
-	
+	bzero(username, 21);
+	bzero(password, 21);
 	//identificam comanda
 	switch(command)
 	{
@@ -115,6 +119,7 @@ void prcsReq(int command, char answer[ANSWER_SIZE], int logged[100], int fd)
 					else
 					{
 						//verificare daca exista username-ul
+						result[0] = 0;
 						sprintf(sql, "select id from users where username = '%s';", username);
 						exit_code = sqlite3_exec(DB, sql, verify_existence, result, NULL);
 						if(exit_code != SQLITE_OK)
@@ -214,6 +219,7 @@ void prcsReq(int command, char answer[ANSWER_SIZE], int logged[100], int fd)
 					{
 						//verificare daca exista contul
 						sprintf(sql, "select id from users where username = '%s' and password = '%s';", username, password);
+						result[0] = 0;
 						exit_code = sqlite3_exec(DB, sql, verify_existence, result, NULL);
 						if(exit_code != SQLITE_OK)
 						{
@@ -257,11 +263,31 @@ void prcsReq(int command, char answer[ANSWER_SIZE], int logged[100], int fd)
 					if(exit_code != SQLITE_OK)
 					{
 						perror("Error on select from users\n");
-						strcpy(answer, "Eroare conectare");
+						strcpy(answer, "Eroare selectare username");
 						break;
 					}
-					sprintf(answer, "username: %s\n", char_result);
 					//de trimis si rating-urile oferite
+					sprintf(sql, "select titlu, autor, rating from ratings r join books b on r.isbn = b.isbn where id_user = %d;", logged[fd]);
+					sqlite3_stmt *stmt;
+					exit_code = sqlite3_prepare_v2(DB, sql, -1, &stmt, NULL);
+					if(exit_code != SQLITE_OK)
+					{
+						perror("Error on select from ratings\n");
+						strcpy(answer, "Eroare selectare rating-uri");
+						break;
+					}
+					if((exit_code = sqlite3_step(stmt)) == SQLITE_ROW)
+						sprintf(answer, "username: %s\n%s by %s rating given: %d", char_result, sqlite3_column_text(stmt, 0), sqlite3_column_text(stmt, 1), sqlite3_column_int(stmt, 2));
+					else sprintf(answer, "username: %s\nNo ratings.", char_result);
+					sendRes(fd, answer);
+					while((exit_code = sqlite3_step(stmt)) == SQLITE_ROW)
+					{
+						sprintf(answer, "\n%s by %s rating given: %d", sqlite3_column_text(stmt, 0), sqlite3_column_text(stmt, 1), sqlite3_column_int(stmt, 2));
+						sendRes(fd, answer);
+					}
+					if(exit_code != SQLITE_DONE)
+						perror("Database sqlite3_step error");
+					sqlite3_finalize(stmt);
 				}
 				break;
 		//cautare
@@ -287,6 +313,9 @@ void prcsReq(int command, char answer[ANSWER_SIZE], int logged[100], int fd)
 				break;
 		default: strcpy(answer, "Comanda nu exista.");
 	}
+	if(command != 3 && command != 4 && command != 7)
+		strcat(answer, EOM);
+	else strcpy(answer, EOM);
 	free(result);
 	free(char_result);
 	sqlite3_close(DB);

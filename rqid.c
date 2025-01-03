@@ -3,7 +3,7 @@
 #include <unistd.h>
 #include <stdio.h>
 
-#define REQ_SIZE 500
+#define REQ_SIZE 512
 
 int idReq(int fd, char req[REQ_SIZE])
 {

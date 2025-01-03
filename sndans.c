@@ -3,7 +3,9 @@
 #include <unistd.h>
 #include <stdio.h>
 
-void sendRes(int fd, char answer[100])
+#define ANSWER_SIZE 512
+
+void sendRes(int fd, char answer[ANSWER_SIZE])
 {
 	int bytes = strlen(answer); //necessary to check for errors in write
 	
@@ -12,5 +14,5 @@ void sendRes(int fd, char answer[100])
 		perror("Error on write() to client");
 		return;
 	}
-	
+	bzero(answer, ANSWER_SIZE);
 }
