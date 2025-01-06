@@ -23,9 +23,9 @@ int idReq(int fd, char req[REQ_SIZE])
 		return 2;
 	else if(strcmp(req, "info cont\n") == 0)
 		return 3;
-	else if(strcmp(req, "cautare\n") == 0)
+	else if(strncmp(req, "cautare", 7) == 0)
 		return 4;
-	else if(strcmp(req, "info carte\n") == 0)
+	else if(strncmp(req, "info carte", 10) == 0)
 		return 5;
 	else if(strcmp(req, "rate\n") == 0)
 		return 6;
