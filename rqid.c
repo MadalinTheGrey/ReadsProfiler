@@ -27,7 +27,7 @@ int idReq(int fd, char req[REQ_SIZE])
 		return 4;
 	else if(strncmp(req, "info carte", 10) == 0)
 		return 5;
-	else if(strcmp(req, "rate\n") == 0)
+	else if(strncmp(req, "rate", 4) == 0)
 		return 6;
 	else if(strcmp(req, "descarcare\n") == 0)
 		return 7;

@@ -524,7 +524,6 @@ void prcsReq(int command, char answer[ANSWER_SIZE], int logged[100], int fd)
 				{
 					strcpy(answer, "Exemplu comanda: \"cautare titlu: (The Two Towers) gen: (fiction) subgen: (adventure, fantasy) autor: (J.R.R Tolkien) an: (1950-1960) rating: (4)\" [Maxim 3 exemple de subgenuri] [Rating reprezinta rating-ul minim]");
 					strcat(answer, EOM);
-					break;
 				}
 				else
 				{
@@ -665,7 +664,6 @@ void prcsReq(int command, char answer[ANSWER_SIZE], int logged[100], int fd)
 					if(corect == 0)
 					{
 						strcpy(answer, "Comanda este de forma \"info carte ISBN\" unde ISBN este prima coloana din rezultatele cautare");
-						break;
 					}
 					else
 					{
@@ -762,7 +760,111 @@ void prcsReq(int command, char answer[ANSWER_SIZE], int logged[100], int fd)
 					strcpy(answer, "Pentru a executa comanda 'rate' trebuie sa fiti conectat.");
 				else
 				{
-					
+					corect = 1;
+					k = 4;
+					if(answer[k] != ' ')
+						corect = 0;
+					k++;
+					int isbn, scor;
+					isbn = scor = 0;
+					while(corect == 1 && ('0' <= answer[k] && answer[k] <= '9'))
+					{
+						isbn = isbn * 10 + answer[k] - '0';
+						k++;
+					}
+					if(answer[k] != ' ')
+						corect = 0;
+					k++;
+					if('1' > answer[k] || answer[k] > '5')
+						corect = 0;
+					else 
+					{
+						scor = answer[k] - '0';
+						k++;
+					}
+					if(answer[k] != '\n')
+						corect = 0;
+					if(corect == 0)
+					{
+						strcpy(answer, "Comanda este de forma \"rate isbn rating\" unde isbn este prima coloana la rezultatele comenzii cautare si rating trebuie sa fie intre 1 si 5.");
+					}
+					else
+					{
+						//verificam daca ISBN-ul dat exista
+						sprintf(sql, "select isbn from books where isbn = %d;", isbn);
+						result[0] = 0;
+						exit_code = sqlite3_exec(DB, sql, verify_existence, result, NULL);
+						if(exit_code != SQLITE_OK)
+						{
+							perror("Error on select from books\n");
+							strcpy(answer, "Eroare selectare books");
+							break;
+						}
+						if(result[0] == 0)
+						{
+							strcpy(answer, "ISBN-ul dat nu exista");
+							break;
+						}
+						//verificam daca utilizatorul nu a dat deja scor la aceasta carte
+						result[0] = 0;
+						sprintf(sql, "select isbn, id_user from ratings where isbn = %d and id_user = %d;", isbn, logged[fd]);
+						exit_code = sqlite3_exec(DB, sql, verify_existence, result, NULL);
+						if(exit_code != SQLITE_OK)
+						{
+							perror("Error on select from ratings\n");
+							strcpy(answer, "Eroare selectare ratings");
+							break;
+						}
+						//daca nu a dat rating adaugam o intrare noua in ratings
+						if(result[0] == 0)
+						{
+							//verificam daca ratings nu e gol
+							strcpy(sql, "select count(*) from ratings;");
+							exit_code = sqlite3_exec(DB, sql, get_column0_number, result, NULL);
+							if(exit_code != SQLITE_OK)
+							{
+								perror("Error on select from ratings\n");
+								strcpy(answer, "Eroare rate database");
+								break;
+							}
+							//daca nu e gol
+							if(result[0] != 0)
+							{
+								//luam id-ul maxim pentru a-l afla pe urmatorul
+								strcpy(sql, "select max(id) from ratings;");
+								exit_code = sqlite3_exec(DB, sql, get_column0_number, result, NULL);
+								if(exit_code != SQLITE_OK)
+								{
+									perror("Error on select from ratings\n");
+									strcpy(answer, "Eroare rate database");
+									break;
+								}
+							}
+							result[0]++;
+							//formam comanda si adaugam rating-ul in database
+							sprintf(sql, "insert into ratings values(%d, %d, %d, %d);", result[0], logged[fd], isbn, scor);
+							exit_code = sqlite3_exec(DB, sql, NULL, NULL, NULL);
+							if(exit_code != SQLITE_OK)
+							{
+								perror("Error on insert into ratings\n");
+								strcpy(answer, "Eroare rate database");
+								break;
+							}
+							strcpy(answer, "Rating adaugat cu succes");
+						}
+						//altfel modificam informatiile existente
+						else
+						{
+							sprintf(sql, "update ratings set rating = %d where isbn = %d and id_user = %d", scor, isbn, logged[fd]);
+							if(exit_code != SQLITE_OK)
+							{
+								perror("Error on update ratings\n");
+								strcpy(answer, "Eroare rate database");
+								break;
+							}
+							strcpy(answer, "Rating actualizat cu succes");
+						}
+					}
 				}
 				break;
 		//descarcare
