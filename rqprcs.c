@@ -143,15 +143,29 @@ void prcsReq(int command, char answer[ANSWER_SIZE], int logged[100], int fd)
 						}
 						
 						//adaugam username si password in baza de date daca nu exista deja
-						//selectam id-ul maxim pentru a obtine urmatorul id
-						strcpy(sql, "select max(id) from users;");
+						//verificam intai daca exista intrari in users
+						strcpy(sql, "select count(*) from users;");
 						exit_code = sqlite3_exec(DB, sql, get_column0_number, result, NULL);
 						if(exit_code != SQLITE_OK)
 						{
-							perror("Error on select from users\n");
-							strcpy(answer, "Eroare creare utilizator");
+							perror("Error on select from interests\n");
+							strcpy(answer, "Eroare info carte database");
 							break;
 						}
+						//daca exista
+						if(result[0] != 0)
+						{
+							//selectam id-ul maxim pentru a obtine urmatorul id
+							strcpy(sql, "select max(id) from users;");
+							exit_code = sqlite3_exec(DB, sql, get_column0_number, result, NULL);
+							if(exit_code != SQLITE_OK)
+							{
+								perror("Error on select from users\n");
+								strcpy(answer, "Eroare creare utilizator");
+								break;
+							}
+						}
+						//altfel result[0] va fi 0 si doar il facem 1 pentru a adauga prima intrare
 						result[0]++;
 						
 						//formam comanda catre database pentru a insera informatiile despre noul cont
@@ -167,7 +181,6 @@ void prcsReq(int command, char answer[ANSWER_SIZE], int logged[100], int fd)
 						//contul a fost creat asa ca salvam id-ul si trimitem confirmare
 						logged[fd] = result[0];
 						strcpy(answer, "Contul a fost creat cu succes!");
-						free(result);
 					}
 				}
 				break;
@@ -631,71 +644,137 @@ void prcsReq(int command, char answer[ANSWER_SIZE], int logged[100], int fd)
 				}
 				break;
 		//info carte
-		case 5: corect = 1;
-				k = 10;
-				if(answer[k] != ' ')
-					corect = 0;
-				k++;
-				p = 0;
-				//salvam in p isbn-ul dat
-				while(corect == 1 && ('0' <= answer[k] && answer[k] <= '9'))
-				{
-					p = p * 10 + answer[k] - '0';
-					k++;
-				}
-				if(answer[k] != '\n')
-					corect = 0;
-				if(corect == 0)
-				{
-					strcpy(answer, "Comanda este de forma \"info carte ISBN\" unde ISBN este prima coloana din rezultatele cautare");
-					break;
-				}
+		case 5: if(logged[fd] == 0)
+					strcpy(answer, "Pentru a executa comanda 'info carte' trebuie sa fiti conectat.");
 				else
 				{
-					//verificam daca ISBN-ul dat exista
-					sprintf(sql, "select isbn from books where isbn = %d;", p);
-					result[0] = 0;
-					exit_code = sqlite3_exec(DB, sql, verify_existence, result, NULL);
-					if(exit_code != SQLITE_OK)
+					corect = 1;
+					k = 10;
+					if(answer[k] != ' ')
+						corect = 0;
+					k++;
+					p = 0;
+					//salvam in p isbn-ul dat
+					while(corect == 1 && ('0' <= answer[k] && answer[k] <= '9'))
 					{
-						perror("Error on select from users\n");
-						strcpy(answer, "Eroare verificare nume");
+						p = p * 10 + answer[k] - '0';
+						k++;
+					}
+					if(answer[k] != '\n')
+						corect = 0;
+					if(corect == 0)
+					{
+						strcpy(answer, "Comanda este de forma \"info carte ISBN\" unde ISBN este prima coloana din rezultatele cautare");
 						break;
 					}
-					if(result[0] == 0)
+					else
 					{
-						strcpy(answer, "ISBN-ul dat nu exista");
-						break;
+						//verificam daca ISBN-ul dat exista
+						sprintf(sql, "select isbn from books where isbn = %d;", p);
+						result[0] = 0;
+						exit_code = sqlite3_exec(DB, sql, verify_existence, result, NULL);
+						if(exit_code != SQLITE_OK)
+						{
+							perror("Error on select from books\n");
+							strcpy(answer, "Eroare selectare books");
+							break;
+						}
+						if(result[0] == 0)
+						{
+							strcpy(answer, "ISBN-ul dat nu exista");
+							break;
+						}
+						//formam comanda sql si trimitem raspunsul
+						sprintf(sql, "select b.isbn, titlu, autor, genuri, subgenuri, an, avg(rating), count(rating) from books b join ratings r on b.isbn = r.isbn where b.isbn = %d;", p);
+						sqlite3_stmt *stmt;
+						//-1 inseamna ca statementul va fi evaluat pana la NULL
+						//NULL pentru a nu retine intr-un string mesajul de eroare
+						exit_code = sqlite3_prepare_v2(DB, sql, -1, &stmt, NULL);
+						if(exit_code != SQLITE_OK)
+						{
+							perror("Error on select from books\n");
+							strcpy(answer, "Eroare selectare books");
+							strcat(answer, EOM);
+							break;
+						}
+						if((exit_code = sqlite3_step(stmt)) == SQLITE_ROW)
+							sprintf(answer, "ISBN: %d\nTitlu: %s\nAutor: %s\nGen: %s Subgenuri: %s\nAn: %d\nRating: %d\nA primit nota de la %d utilizatori", sqlite3_column_int(stmt, 0), sqlite3_column_text(stmt, 1), sqlite3_column_text(stmt, 2), sqlite3_column_text(stmt, 3), sqlite3_column_text(stmt, 4), sqlite3_column_int(stmt, 5), sqlite3_column_int(stmt, 6), sqlite3_column_int(stmt, 7));
+						else sprintf(answer, "No results.");
+						//nu exista mai multe randuri la rezultate dar vom continua executia pentru ca exit_code sa devina SQLITE_DONE
+						exit_code = sqlite3_step(stmt);
+						if(exit_code != SQLITE_DONE)
+							perror("Database sqlite3_step error");
+						sqlite3_finalize(stmt);
+						//verificam daca cartea nu a fost adaugata deja la interesele utilizatorului
+						sprintf(sql, "select isbn, id_user from interests where isbn = %d and id_user = %d and type = 1;", p, logged[fd]);
+						result[0] = 0;
+						exit_code = sqlite3_exec(DB, sql, verify_existence, result, NULL);
+						if(exit_code != SQLITE_OK)
+						{
+							perror("Error on select from interests\n");
+							strcpy(answer, "Eroare info carte database");
+							break;
+						}
+						
+						if(result[0] == 0)
+						{
+							result[0] = 0;
+							//verificam ca tabelul sa nu fie gol
+							strcpy(sql, "select count(*) from interests;");
+							exit_code = sqlite3_exec(DB, sql, get_column0_number, result, NULL);
+							if(exit_code != SQLITE_OK)
+							{
+								perror("Error on select from interests\n");
+								strcpy(answer, "Eroare info carte database");
+								break;
+							}
+							//daca tabelul nu e gol
+							if(result[0] != 0)
+							{
+								//luam id-ul maxim din interests pentru a-l afla pe urmatorul
+								strcpy(sql, "select max(id) from interests;");
+								exit_code = sqlite3_exec(DB, sql, get_column0_number, result, NULL);
+								if(exit_code != SQLITE_OK)
+								{
+									perror("Error on select from interests\n");
+									strcpy(answer, "Eroare info carte database");
+									break;
+								}
+							}
+							//altfel result[0] = 0 deci id va fi 1 dupa incrementare
+							result[0]++;
+							
+							//adaugam cartea la interesele utilizatorului
+							sprintf(sql, "insert into interests values(%d, %d, %d, 1);", result[0], logged[fd], p);
+							exit_code = sqlite3_exec(DB, sql, NULL, NULL, NULL);
+							if(exit_code != SQLITE_OK)
+							{
+								perror("Error on insert into interests\n");
+								strcpy(answer, "Eroare info carte database");
+								break;
+							}
+						}
 					}
-					//formam comanda sql si trimitem raspunsul
-					sprintf(sql, "select b.isbn, titlu, autor, genuri, subgenuri, an, avg(rating), count(rating) from books b join ratings r on b.isbn = r.isbn where b.isbn = %d;", p);
-					sqlite3_stmt *stmt;
-					//-1 inseamna ca statementul va fi evaluat pana la NULL
-					//NULL pentru a nu retine intr-un string mesajul de eroare
-					exit_code = sqlite3_prepare_v2(DB, sql, -1, &stmt, NULL);
-					if(exit_code != SQLITE_OK)
-					{
-						perror("Error on select from books\n");
-						strcpy(answer, "Eroare selectare books");
-						strcat(answer, EOM);
-						break;
-					}
-					if((exit_code = sqlite3_step(stmt)) == SQLITE_ROW)
-						sprintf(answer, "ISBN: %d\nTitlu: %s\nAutor: %s\nGen: %s Subgenuri: %s\nAn: %d\nRating: %d\nA primit nota de la %d utilizatori", sqlite3_column_int(stmt, 0), sqlite3_column_text(stmt, 1), sqlite3_column_text(stmt, 2), sqlite3_column_text(stmt, 3), sqlite3_column_text(stmt, 4), sqlite3_column_int(stmt, 5), sqlite3_column_int(stmt, 6), sqlite3_column_int(stmt, 7));
-					else sprintf(answer, "No results.");
-					//nu exista mai multe randuri la rezultate dar vom continua executia pentru ca exit_code sa devina SQLITE_DONE
-					exit_code = sqlite3_step(stmt);
-					if(exit_code != SQLITE_DONE)
-						perror("Database sqlite3_step error");
-					sqlite3_finalize(stmt);
 				}
 				break;
 		//rate
 		case 6: if(logged[fd] == 0)
 					strcpy(answer, "Pentru a executa comanda 'rate' trebuie sa fiti conectat.");
+				else
+				{
+					
+				}
 				break;
 		//descarcare
-		case 7: strcpy(answer, "Comanda identificata: 7. descarcare");
+		case 7: if(logged[fd] == 0)
+				{
+					strcpy(answer, "Pentru a executa comanda 'descarcare' trebuie sa fiti conectat.");
+					strcat(answer, EOM);
+				}
+				else
+				{
+					//strcpy(answer, "Comanda identificata: 7. descarcare");
+				}
 				break;
 		//recomandari
 		case 8: if(logged[fd] == 0)
