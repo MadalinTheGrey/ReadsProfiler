@@ -878,7 +878,44 @@ void prcsReq(int command, char answer[ANSWER_SIZE], int logged[100], int fd)
 				}
 				else
 				{
-					
+					corect = 1;
+					k = 10;
+					if(answer[k] != ' ')
+						corect = 0;
+					k++;
+					int isbn = 0;
+					while(corect == 1 && ('0' <= answer[k] && answer[k] <= '9'))
+					{
+						isbn = isbn * 10 + answer[k] - '0';
+						k++;
+					}
+					if(answer[k] != '\n')
+						corect = 0;
+					if(corect == 0)
+					{
+						strcpy(answer, "Comanda este de forma \"descarcare isbn\" unde isbn este prima coloana din rezultatele unei cautari.");
+						strcat(answer, EOM);
+					}
+					else
+					{
+						//verificam daca ISBN-ul dat exista
+						sprintf(sql, "select isbn from books where isbn = %d;", isbn);
+						result[0] = 0;
+						exit_code = sqlite3_exec(DB, sql, verify_existence, result, NULL);
+						if(exit_code != SQLITE_OK)
+						{
+							perror("Error on select from books\n");
+							strcpy(answer, "Eroare selectare books");
+							break;
+						}
+						if(result[0] == 0)
+						{
+							strcpy(answer, "ISBN-ul dat nu exista");
+							strcat(answer, EOM);
+							break;
+						}
+						
+					}
 				}
 				break;
 		//recomandari
