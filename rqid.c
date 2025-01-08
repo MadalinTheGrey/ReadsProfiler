@@ -29,7 +29,7 @@ int idReq(int fd, char req[REQ_SIZE])
 		return 5;
 	else if(strncmp(req, "rate", 4) == 0)
 		return 6;
-	else if(strcmp(req, "descarcare\n") == 0)
+	else if(strncmp(req, "descarcare", 10) == 0)
 		return 7;
 	else if(strcmp(req, "recomandari\n") == 0)
 		return 8;

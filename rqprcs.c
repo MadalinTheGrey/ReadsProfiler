@@ -583,18 +583,20 @@ void prcsReq(int command, char answer[ANSWER_SIZE], int logged[100], int fd)
 								}
 							}
 						}
-						strcat(sql, "subgenuri = '");
+						strcat(sql, "subgenuri like '%");
 						strcat(sql, subgenres[0]);
 						if(index > 0)
 						{
-							strcat(sql, ", ");
+							strcat(sql, "%, ");
 							strcat(sql, subgenres[1]);
 							if(index > 1)
 							{
 								strcat(sql, ", ");
 								strcat(sql, subgenres[2]);
 							}
+							else strcat(sql, "%");
 						}
+						else strcat(sql, "%");
 						strcat(sql, "'");
 						p = 1;
 					}
@@ -628,12 +630,12 @@ void prcsReq(int command, char answer[ANSWER_SIZE], int logged[100], int fd)
 						break;
 					}
 					if((exit_code = sqlite3_step(stmt)) == SQLITE_ROW)
-						sprintf(answer, "%d | %s | %s | %d", sqlite3_column_int(stmt, 0), sqlite3_column_text(stmt, 1), sqlite3_column_text(stmt, 2), sqlite3_column_int(stmt, 3));
+						sprintf(answer, "%d | %s | %s | %.2f", sqlite3_column_int(stmt, 0), sqlite3_column_text(stmt, 1), sqlite3_column_text(stmt, 2), sqlite3_column_double(stmt, 3));
 					else sprintf(answer, "No results.");
 					sendRes(fd, answer);
 					while((exit_code = sqlite3_step(stmt)) == SQLITE_ROW)
 					{
-						sprintf(answer, "\n%d | %s | %s | %d", sqlite3_column_int(stmt, 0), sqlite3_column_text(stmt, 1), sqlite3_column_text(stmt, 2), sqlite3_column_int(stmt, 3));
+						sprintf(answer, "\n%d | %s | %s | %.2f", sqlite3_column_int(stmt, 0), sqlite3_column_text(stmt, 1), sqlite3_column_text(stmt, 2), sqlite3_column_double(stmt, 3));
 						sendRes(fd, answer);
 					}
 					strcpy(answer, EOM);
@@ -696,7 +698,7 @@ void prcsReq(int command, char answer[ANSWER_SIZE], int logged[100], int fd)
 							break;
 						}
 						if((exit_code = sqlite3_step(stmt)) == SQLITE_ROW)
-							sprintf(answer, "ISBN: %d\nTitlu: %s\nAutor: %s\nGen: %s Subgenuri: %s\nAn: %d\nRating: %d\nA primit nota de la %d utilizatori", sqlite3_column_int(stmt, 0), sqlite3_column_text(stmt, 1), sqlite3_column_text(stmt, 2), sqlite3_column_text(stmt, 3), sqlite3_column_text(stmt, 4), sqlite3_column_int(stmt, 5), sqlite3_column_int(stmt, 6), sqlite3_column_int(stmt, 7));
+							sprintf(answer, "ISBN: %d\nTitlu: %s\nAutor: %s\nGen: %s Subgenuri: %s\nAn: %d\nRating: %.2f\nA primit nota de la %d utilizatori", sqlite3_column_int(stmt, 0), sqlite3_column_text(stmt, 1), sqlite3_column_text(stmt, 2), sqlite3_column_text(stmt, 3), sqlite3_column_text(stmt, 4), sqlite3_column_int(stmt, 5), sqlite3_column_double(stmt, 6), sqlite3_column_int(stmt, 7));
 						else sprintf(answer, "No results.");
 						//nu exista mai multe randuri la rezultate dar vom continua executia pentru ca exit_code sa devina SQLITE_DONE
 						exit_code = sqlite3_step(stmt);
@@ -855,7 +857,8 @@ void prcsReq(int command, char answer[ANSWER_SIZE], int logged[100], int fd)
 						//altfel modificam informatiile existente
 						else
 						{
-							sprintf(sql, "update ratings set rating = %d where isbn = %d and id_user = %d", scor, isbn, logged[fd]);
+							sprintf(sql, "update ratings set rating = %d where isbn = %d and id_user = %d;", scor, isbn, logged[fd]);
+							exit_code = sqlite3_exec(DB, sql, NULL, NULL, NULL);
 							if(exit_code != SQLITE_OK)
 							{
 								perror("Error on update ratings\n");
@@ -875,7 +878,7 @@ void prcsReq(int command, char answer[ANSWER_SIZE], int logged[100], int fd)
 				}
 				else
 				{
-					//strcpy(answer, "Comanda identificata: 7. descarcare");
+					
 				}
 				break;
 		//recomandari
