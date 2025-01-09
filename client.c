@@ -7,10 +7,13 @@
 #include <stdlib.h>
 #include <netdb.h>
 #include <string.h>
+#include <fcntl.h>
 
 #define MSG_SIZE 512
 //marks the end of the message from the server
 #define EOM "01END10"
+//beginning and end marker for book download
+#define BOOK_DOWNLOAD "8005BOOK5008"
 
 /* codul de eroare returnat de anumite apeluri */
 extern int errno;
@@ -22,9 +25,12 @@ int main (int argc, char *argv[])
 {
   int sd;			// descriptorul de socket
   int connection = 1; //determines if the client is still sending requests (1 if yes, 0 otherwise)
+  int downloading_book = 0; //1 if book download is in progress, 0 otherwise
+  int book_fd;
+  char nume_carte[60]; //numele cartii pe care o descarcam
   int exit_code, len;
   struct sockaddr_in server;	// structura folosita pentru conectare 
-  char msg[MSG_SIZE], *s;		// folosit pentru comunicarea cu serverul
+  char msg[MSG_SIZE], *s, ch = '1';		// folosit pentru comunicarea cu serverul
 
   /* exista toate argumentele in linia de comanda? */
   if (argc != 3)
@@ -86,7 +92,41 @@ int main (int argc, char *argv[])
 			{
 				perror("[client] Error on read\n");
 			}
-			if((s = strstr(msg, EOM)) != NULL)
+			len = 0;
+			if(strncmp(msg, BOOK_DOWNLOAD, 12) == 0)
+			{
+				if(downloading_book == 0)
+				{
+					//confirmam citirea
+					write(sd, &ch, 1);
+					
+					downloading_book = 1;
+					strcpy(nume_carte, msg + 13);
+					if((book_fd = open(nume_carte, O_WRONLY | O_CREAT | O_TRUNC, 0666)) == -1)
+					{
+						perror("[client] Error on open()");
+					}
+				}
+				else
+				{
+					//confirmam citirea
+					write(sd, &ch, 1);
+					
+					downloading_book = 0;
+					close(book_fd);
+				}
+			}
+			else if(downloading_book == 1)
+			{
+				//confirmam citirea
+				write(sd, &ch, 1);
+					
+				if(write(book_fd, msg, strlen(msg)) < 0)
+				{
+					perror("[client] Error on write()");
+				}
+			}
+			else if((s = strstr(msg, EOM)) != NULL)
 			{
 				//determine length of message without EOM
 				len = strlen(msg) - 7;

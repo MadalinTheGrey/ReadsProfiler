@@ -5,10 +5,15 @@
 #include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <fcntl.h>
+#include <unistd.h>
 
 #define NUME_DB "readsprofiler.db"
 #define ANSWER_SIZE 512
+//end of message from server
 #define EOM "01END10"
+//beginning and end marker for book download
+#define BOOK_DOWNLOAD "8005BOOK5008"
 
 int alfanumeric(char ch)
 {
@@ -46,10 +51,10 @@ static int get_col0_string(void *result, int count, char **data, char **columns)
 void prcsReq(int command, char answer[ANSWER_SIZE], int logged[100], int fd)
 {
 	sqlite3* DB;
-	int exit_code = 0, corect, k, p, index, *result = malloc(sizeof(int));
+	int exit_code = 0, corect, k, p, index, *result = malloc(sizeof(int)), book_fd, bytes_read;
 	char sql[ANSWER_SIZE], username[21], password[21], number[21], *char_result = malloc(200);
 	char titlu[50], genre[60], subgenres[4][60], autor[30]; int an_start, an_end, rating_min; //salveaza filtre comanda cautare
-	char aux[ANSWER_SIZE];
+	char aux[ANSWER_SIZE], path[ANSWER_SIZE];
 	
 	exit_code = sqlite3_open(NUME_DB, &DB);
 	if(exit_code)
@@ -58,7 +63,7 @@ void prcsReq(int command, char answer[ANSWER_SIZE], int logged[100], int fd)
 		return;
 	}
 	
-	//pregatim vectorul sql pentru transmiterea de comenzi
+	//pregatim vectorii
 	bzero(sql, ANSWER_SIZE);
 	bzero(number, 21);
 	bzero(username, 21);
@@ -906,6 +911,7 @@ void prcsReq(int command, char answer[ANSWER_SIZE], int logged[100], int fd)
 						{
 							perror("Error on select from books\n");
 							strcpy(answer, "Eroare selectare books");
+							strcat(answer, EOM);
 							break;
 						}
 						if(result[0] == 0)
@@ -915,6 +921,54 @@ void prcsReq(int command, char answer[ANSWER_SIZE], int logged[100], int fd)
 							break;
 						}
 						
+						sprintf(sql, "select titlu from books where isbn = %d;", isbn);
+						exit_code = sqlite3_exec(DB, sql, get_col0_string, char_result, NULL);
+						if(exit_code != SQLITE_OK)
+						{
+							perror("Error on select from books\n");
+							strcpy(answer, "Eroare selectare books");
+							strcat(answer, EOM);
+							break;
+						}
+						//cream calea catre carte
+						strcat(char_result, ".txt");
+						sprintf(path, "Books/%s", char_result);
+						if((book_fd = open(path, O_RDONLY)) == -1)
+						{
+							perror("[server] Error on open()");
+							strcpy(answer, "Eroare la citirea cartii");
+							strcat(answer, EOM);
+							break;
+						}
+						strcpy(answer, BOOK_DOWNLOAD);
+						strcat(answer, " ");
+						strcat(answer, char_result);
+						sendRes(fd, answer);
+						//apel blocant pana cand clientul confirma
+						read(fd, number, 1);
+						while((bytes_read = read(book_fd, answer, ANSWER_SIZE)) != 0)
+						{
+							if(bytes_read < 0)
+							{
+								perror("[server] Error on read from book");
+								strcpy(answer, BOOK_DOWNLOAD);
+								sendRes(fd, answer);
+								//apel blocant pana cand clientul confirma
+								read(fd, number, 1);
+								strcpy(answer, "Eroare la citirea cartii");
+								strcat(answer, EOM);
+								break;
+							}
+							sendRes(fd, answer);
+							//apel blocant pana cand clientul confirma
+							read(fd, number, 1);
+						}
+						strcpy(answer, BOOK_DOWNLOAD);
+						sendRes(fd, answer);
+						//apel blocant pana cand clientul confirma
+						read(fd, number, 1);
+						strcpy(answer, "Carte transmisa cu succes");
+						strcat(answer, EOM);
 					}
 				}
 				break;
