@@ -721,6 +721,7 @@ void prcsReq(int command, char answer[ANSWER_SIZE], int logged[100], int fd)
 							break;
 						}
 						
+						//daca nu a fost adaugata o adaugam
 						if(result[0] == 0)
 						{
 							result[0] = 0;
@@ -969,6 +970,57 @@ void prcsReq(int command, char answer[ANSWER_SIZE], int logged[100], int fd)
 						read(fd, number, 1);
 						strcpy(answer, "Carte transmisa cu succes");
 						strcat(answer, EOM);
+						
+						//verificam daca cartea nu a fost adaugata deja la interesele utilizatorului
+						sprintf(sql, "select isbn, id_user from interests where isbn = %d and id_user = %d and type = 2;", isbn, logged[fd]);
+						result[0] = 0;
+						exit_code = sqlite3_exec(DB, sql, verify_existence, result, NULL);
+						if(exit_code != SQLITE_OK)
+						{
+							perror("Error on select from interests\n");
+							strcpy(answer, "Eroare info carte database");
+							break;
+						}
+						
+						//daca nu a fost adaugata o adaugam
+						if(result[0] == 0)
+						{
+							result[0] = 0;
+							//verificam ca tabelul sa nu fie gol
+							strcpy(sql, "select count(*) from interests;");
+							exit_code = sqlite3_exec(DB, sql, get_column0_number, result, NULL);
+							if(exit_code != SQLITE_OK)
+							{
+								perror("Error on select from interests\n");
+								strcpy(answer, "Eroare info carte database");
+								break;
+							}
+							//daca tabelul nu e gol
+							if(result[0] != 0)
+							{
+								//luam id-ul maxim din interests pentru a-l afla pe urmatorul
+								strcpy(sql, "select max(id) from interests;");
+								exit_code = sqlite3_exec(DB, sql, get_column0_number, result, NULL);
+								if(exit_code != SQLITE_OK)
+								{
+									perror("Error on select from interests\n");
+									strcpy(answer, "Eroare info carte database");
+									break;
+								}
+							}
+							//altfel result[0] = 0 deci id va fi 1 dupa incrementare
+							result[0]++;
+							
+							//adaugam cartea la interesele utilizatorului
+							sprintf(sql, "insert into interests values(%d, %d, %d, 2);", result[0], logged[fd], isbn);
+							exit_code = sqlite3_exec(DB, sql, NULL, NULL, NULL);
+							if(exit_code != SQLITE_OK)
+							{
+								perror("Error on insert into interests\n");
+								strcpy(answer, "Eroare info carte database");
+								break;
+							}
+						}
 					}
 				}
 				break;
