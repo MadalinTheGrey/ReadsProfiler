@@ -10,6 +10,7 @@
 
 #define NUME_DB "readsprofiler.db"
 #define ANSWER_SIZE 512
+#define SQL_SIZE 1024
 //end of message from server
 #define EOM "01END10"
 //beginning and end marker for book download
@@ -52,9 +53,10 @@ void prcsReq(int command, char answer[ANSWER_SIZE], int logged[100], int fd)
 {
 	sqlite3* DB;
 	int exit_code = 0, corect, k, p, index, *result = malloc(sizeof(int)), book_fd, bytes_read;
-	char sql[ANSWER_SIZE], username[21], password[21], number[21], *char_result = malloc(200);
+	char sql[SQL_SIZE], username[21], password[21], number[21], *char_result = malloc(200);
 	char titlu[50], genre[60], subgenres[4][60], autor[30]; int an_start, an_end, rating_min; //salveaza filtre comanda cautare
-	char aux[ANSWER_SIZE], path[ANSWER_SIZE];
+	char aux[ANSWER_SIZE], path[ANSWER_SIZE]; //path retine calea relativa catre carti (cartile sunt salvate intr-un folder denumit "Books" din folderul programului)
+	int recoms[5], nr_recoms = 0; //retine isbn-urile cartilor care vor fi date ca recomandari
 	
 	exit_code = sqlite3_open(NUME_DB, &DB);
 	if(exit_code)
@@ -64,13 +66,14 @@ void prcsReq(int command, char answer[ANSWER_SIZE], int logged[100], int fd)
 	}
 	
 	//pregatim vectorii
-	bzero(sql, ANSWER_SIZE);
+	bzero(sql, SQL_SIZE);
 	bzero(number, 21);
 	bzero(username, 21);
 	bzero(password, 21);
 	bzero(genre, 60);
 	bzero(titlu, 50);
 	bzero(autor, 30);
+	bzero(recoms, 5);
 	for(int i = 0; i < 3; i++)
 		bzero(subgenres[i], 60);
 	an_start = an_end = rating_min = index = -1;
@@ -1040,7 +1043,7 @@ void prcsReq(int command, char answer[ANSWER_SIZE], int logged[100], int fd)
 					When no genre/author/subgenre stands out recommend highest rated books (done)
 					*/
 					char autor_fav[3][30], gen_fav[60], subgen_fav[3][60];
-					int nr_autori = 0, nr_subgenuri = 0;
+					int nr_autori = 0, nr_subgenuri = 0, no_preference = 0;
 					sprintf(sql, "select autor, avg(rating) as avg_rating from ratings r join books b on r.isbn = b.isbn where id_user = %d group by autor order by avg(rating) desc LIMIT 3;", logged[fd]);
 					result[0] = 0;
 					exit_code = sqlite3_exec(DB, sql, verify_existence, result, NULL);
@@ -1050,6 +1053,7 @@ void prcsReq(int command, char answer[ANSWER_SIZE], int logged[100], int fd)
 						strcpy(answer, "Eroare selectare recomandari");
 						break;
 					}
+					//daca nu avem destule ratings
 					if(result[0] == 0)
 					{
 						sprintf(sql, "select autor, sum(type) as interest_score from interests i join books b on i.isbn = b.isbn where id_user = %d group by autor order by sum(type) desc LIMIT 3;", logged[fd]);
@@ -1063,6 +1067,7 @@ void prcsReq(int command, char answer[ANSWER_SIZE], int logged[100], int fd)
 						//daca utilizatorul nu are nicio preferinta salvata recomandam cartile cu cel mai mare rating, iar daca exista rating-uri egale se iau cele cu mai multe rating-uri primite
 						if(result[0] == 0)
 						{
+							no_preference = 1;
 							sprintf(sql, "select b.isbn, titlu, autor, avg(rating) from books b join ratings r on b.isbn = r.isbn group by b.isbn order by avg(rating) desc, count(rating) desc LIMIT 5;");
 							sqlite3_stmt *stmt;
 							exit_code = sqlite3_prepare_v2(DB, sql, -1, &stmt, NULL);
@@ -1122,7 +1127,7 @@ void prcsReq(int command, char answer[ANSWER_SIZE], int logged[100], int fd)
 							
 							//cautam subgenurile favorite
 							sprintf(sql, "select subgenuri, sum(type) as interest_score from interests i join books b on i.isbn = b.isbn where id_user = %d group by subgenuri order by sum(type) desc LIMIT 3;", logged[fd]);
-							/*exit_code = sqlite3_prepare_v2(DB, sql, -1, &stmt, NULL);
+							exit_code = sqlite3_prepare_v2(DB, sql, -1, &stmt, NULL);
 							if(exit_code != SQLITE_OK)
 							{
 								perror("Error on select for recommendations\n");
@@ -1135,21 +1140,297 @@ void prcsReq(int command, char answer[ANSWER_SIZE], int logged[100], int fd)
 								if(nr_subgenuri < 3)
 								{
 									sprintf(aux, "%s", sqlite3_column_text(stmt, 0));
-									char *s = aux, *s1;
-									while((s1 = strstr(aux, ",")) != NULL)
+									index = k = 0;
+									while(index < strlen(aux))
 									{
-										strncpy(subgen_fav[nr_subgenuri], s, s1 - s);
-										nr_subgenuri++;
-										s = s1 + 2;
+										if(aux[index] == ',')
+										{
+											//adaugam null la finalul subgenului salvat
+											subgen_fav[nr_subgenuri][k] = '\0';
+											nr_subgenuri++;
+											index += 2;
+											k = 0;
+										}
+										else 
+										{
+											subgen_fav[nr_subgenuri][k] = aux[index];
+											k++;
+											index++;
+										}
 									}
-									strcpy(subgen_fav[nr_subgenuri], s);
+									//adaugam null la finalul ultimului subgen
+									subgen_fav[nr_subgenuri][k] = '\0';
 									nr_subgenuri++;
 								}
 							}
 							if(exit_code != SQLITE_DONE)
 								perror("Database sqlite3_step error");
-							sqlite3_finalize(stmt);*/
-							//copy this shit by hand (no pointers)
+							sqlite3_finalize(stmt);
+						}
+					} //caz in care nu sunt destule ratings de la user
+					//avem destule ratings
+					else
+					{
+						sqlite3_stmt *stmt;
+						exit_code = sqlite3_prepare_v2(DB, sql, -1, &stmt, NULL);
+						if(exit_code != SQLITE_OK)
+						{
+							perror("Error on select for recommendations\n");
+							strcpy(answer, "Eroare selectare recomandari");
+							break;
+						}
+						//salvam autorii favoriti (maxim 3)
+						while((exit_code = sqlite3_step(stmt)) == SQLITE_ROW)
+						{
+							sprintf(autor_fav[nr_autori], "%s", sqlite3_column_text(stmt, 0));
+							nr_autori++;
+						}
+						if(exit_code != SQLITE_DONE)
+							perror("Database sqlite3_step error");
+						sqlite3_finalize(stmt);
+						
+						//cautam genul favorit
+						sprintf(sql, "select genuri, avg(rating) from ratings r join books b on r.isbn = b.isbn where id_user = %d group by genuri order by avg(rating) desc LIMIT 1;", logged[fd]);
+						exit_code = sqlite3_prepare_v2(DB, sql, -1, &stmt, NULL);
+						if(exit_code != SQLITE_OK)
+						{
+							perror("Error on select for recommendations\n");
+							strcpy(answer, "Eroare selectare recomandari");
+							break;
+						}
+						//salvam genul favorit
+						if((exit_code = sqlite3_step(stmt)) == SQLITE_ROW)
+							sprintf(gen_fav, "%s", sqlite3_column_text(stmt, 0));
+						exit_code = sqlite3_step(stmt);
+						if(exit_code != SQLITE_DONE)
+							perror("Database sqlite3_step error");
+						sqlite3_finalize(stmt);
+						
+						//cautam subgenurile favorite
+						sprintf(sql, "select subgenuri, avg(rating) from ratings r join books b on r.isbn = b.isbn where id_user = %d group by subgenuri order by avg(rating) desc LIMIT 3;", logged[fd]);
+						exit_code = sqlite3_prepare_v2(DB, sql, -1, &stmt, NULL);
+						if(exit_code != SQLITE_OK)
+						{
+							perror("Error on select for recommendations\n");
+							strcpy(answer, "Eroare selectare recomandari");
+							break;
+						}
+						//salvam subgenurile favorite (maxim 3)
+						while((exit_code = sqlite3_step(stmt)) == SQLITE_ROW)
+						{
+							if(nr_subgenuri < 3)
+							{
+								sprintf(aux, "%s", sqlite3_column_text(stmt, 0));
+								index = k = 0;
+								while(index < strlen(aux))
+								{
+									if(aux[index] == ',')
+									{
+										//adaugam null la finalul subgenului salvat
+										subgen_fav[nr_subgenuri][k] = '\0';
+										nr_subgenuri++;
+										index += 2;
+										k = 0;
+									}
+									else 
+									{
+										subgen_fav[nr_subgenuri][k] = aux[index];
+										k++;
+										index++;
+									}
+								}
+								//adaugam null la finalul ultimului subgen
+								subgen_fav[nr_subgenuri][k] = '\0';
+								nr_subgenuri++;
+							}
+						}
+						if(exit_code != SQLITE_DONE)
+							perror("Database sqlite3_step error");
+						sqlite3_finalize(stmt);
+					} //caz in care avem destule ratings
+					//cautare recomandari
+					if(no_preference == 0)
+					{
+						int i1, i2, already_added;
+						i1 = i2 = nr_recoms = already_added = 0;
+						sqlite3_stmt *stmt;
+						while(i1 < nr_autori && nr_recoms < 5)
+						{
+							sprintf(sql, "select isbn from (select b.isbn, avg(rating) from books b join ratings r on b.isbn = r.isbn where autor = '%s' and genuri = '%s' and subgenuri like '%%%s%%' group by b.isbn order by avg(rating) desc) EXCEPT select b.isbn from books b join ratings r on b.isbn = r.isbn where r.id_user = %d EXCEPT select b.isbn from books b join interests i on b.isbn = i.isbn where i.id_user = %d and type = 2 LIMIT 5;", autor_fav[i1], gen_fav, subgen_fav[i2], logged[fd], logged[fd]);
+							exit_code = sqlite3_prepare_v2(DB, sql, -1, &stmt, NULL);
+							if(exit_code != SQLITE_OK)
+							{
+								perror("Error on select for recommendations\n");
+								strcpy(answer, "Eroare selectare recomandari");
+								break;
+							}
+							while((exit_code = sqlite3_step(stmt)) == SQLITE_ROW)
+							{
+								if(nr_recoms < 5)
+								{
+									already_added = 0;
+									for(int i = 0; already_added == 0 && i < nr_recoms; i++)
+										if(recoms[i] == sqlite3_column_int(stmt, 0))
+											already_added = 1;
+									if(already_added == 0)
+									{
+										recoms[nr_recoms] = sqlite3_column_int(stmt, 0);
+										nr_recoms++;
+									}
+								}
+							}
+							if(exit_code != SQLITE_DONE)
+								perror("Database sqlite3_step error");
+							sqlite3_finalize(stmt);
+							i2++;
+							if(i2 == nr_subgenuri)
+							{
+								i2 = 0;
+								i1++;
+							}
+						}
+						//daca nu am gasit inca 5 scoatem filtrul autor
+						if(nr_recoms < 5)
+						{
+							i2 = 0;
+							while(i2 < nr_subgenuri && nr_recoms < 5)
+							{
+								sprintf(sql, "select isbn from (select b.isbn, avg(rating) from books b join ratings r on b.isbn = r.isbn where genuri = '%s' and subgenuri like '%%%s%%' group by b.isbn order by avg(rating) desc) EXCEPT select b.isbn from books b join ratings r on b.isbn = r.isbn where r.id_user = %d EXCEPT select b.isbn from books b join interests i on b.isbn = i.isbn where i.id_user = %d and type = 2 LIMIT 5;", gen_fav, subgen_fav[i2], logged[fd], logged[fd]);
+								exit_code = sqlite3_prepare_v2(DB, sql, -1, &stmt, NULL);
+								if(exit_code != SQLITE_OK)
+								{
+									perror("Error on select for recommendations\n");
+									strcpy(answer, "Eroare selectare recomandari");
+									break;
+								}
+								while((exit_code = sqlite3_step(stmt)) == SQLITE_ROW)
+								{
+									if(nr_recoms < 5)
+									{
+										already_added = 0;
+										for(int i = 0; already_added == 0 && i < nr_recoms; i++)
+											if(recoms[i] == sqlite3_column_int(stmt, 0))
+												already_added = 1;
+										if(already_added == 0)
+										{
+											recoms[nr_recoms] = sqlite3_column_int(stmt, 0);
+											nr_recoms++;
+										}
+									}
+								}
+								if(exit_code != SQLITE_DONE)
+									perror("Database sqlite3_step error");
+								sqlite3_finalize(stmt);
+								i2++;
+							}
+						}
+						//daca tot nu am gasit 5 scoatem filtrul genuri
+						if(nr_recoms < 5)
+						{
+							i2 = 0;
+							while(i2 < nr_subgenuri && nr_recoms < 5)
+							{
+								sprintf(sql, "select isbn from (select b.isbn, avg(rating) from books b join ratings r on b.isbn = r.isbn where subgenuri like '%%%s%%' group by b.isbn order by avg(rating) desc) EXCEPT select b.isbn from books b join ratings r on b.isbn = r.isbn where r.id_user = %d EXCEPT select b.isbn from books b join interests i on b.isbn = i.isbn where i.id_user = %d and type = 2 LIMIT 5;", subgen_fav[i2], logged[fd], logged[fd]);
+								exit_code = sqlite3_prepare_v2(DB, sql, -1, &stmt, NULL);
+								if(exit_code != SQLITE_OK)
+								{
+									perror("Error on select for recommendations\n");
+									strcpy(answer, "Eroare selectare recomandari");
+									break;
+								}
+								while((exit_code = sqlite3_step(stmt)) == SQLITE_ROW)
+								{
+									if(nr_recoms < 5)
+									{
+										already_added = 0;
+										for(int i = 0; already_added == 0 && i < nr_recoms; i++)
+											if(recoms[i] == sqlite3_column_int(stmt, 0))
+												already_added = 1;
+										if(already_added == 0)
+										{
+											recoms[nr_recoms] = sqlite3_column_int(stmt, 0);
+											nr_recoms++;
+										}
+									}
+								}
+								if(exit_code != SQLITE_DONE)
+									perror("Database sqlite3_step error");
+								sqlite3_finalize(stmt);
+								i2++;
+							}
+						}
+						int found_similar_taste_recom = 0;							
+						sprintf(sql, "select id_user, avg(rating) from ratings r join books b on r.isbn = b.isbn where autor = '%s' and genuri = '%s' and subgenuri like '%%%s%%' and id_user != %d group by id_user having avg(rating) > 4.5 LIMIT 50;", autor_fav[i1], gen_fav, subgen_fav[i2], logged[fd]);
+						exit_code = sqlite3_prepare_v2(DB, sql, -1, &stmt, NULL);
+						if(exit_code != SQLITE_OK)
+						{
+							perror("Error on select for recommendations\n");
+							strcpy(answer, "Eroare selectare recomandari");
+							break;
+						}
+						while((exit_code = sqlite3_step(stmt)) == SQLITE_ROW)
+						{
+							sprintf(sql, "select isbn from (select b.isbn from books b join ratings r on b.isbn = r.isbn where id_user = %d order by rating desc) EXCEPT select b.isbn from books b join ratings r on b.isbn = r.isbn where r.id_user = %d EXCEPT select b.isbn from books b join interests i on b.isbn = i.isbn where i.id_user = %d and type = 2 LIMIT 1;", sqlite3_column_int(stmt, 0), logged[fd], logged[fd]);
+							sqlite3_stmt *stmt1;
+							exit_code = sqlite3_prepare_v2(DB, sql, -1, &stmt1, NULL);
+							if(exit_code != SQLITE_OK)
+							{
+								perror("Error on select for recommendations\n");
+								strcpy(answer, "Eroare selectare recomandari");
+								break;
+							}
+							while((exit_code = sqlite3_step(stmt1)) == SQLITE_ROW)
+							{
+								if(found_similar_taste_recom < 3)
+								{
+									already_added = 0;
+									for(int i = 0; already_added == 0 && i < nr_recoms; i++)
+										if(recoms[i] == sqlite3_column_int(stmt1, 0))
+											already_added = 1;
+									if(already_added == 0)
+									{
+										if(nr_recoms < 5)
+										{
+											recoms[nr_recoms] = sqlite3_column_int(stmt1, 0);
+											nr_recoms++;
+										}
+										else recoms[4] = sqlite3_column_int(stmt1, 0);
+										found_similar_taste_recom++;
+									}
+								}
+							}
+							if(exit_code != SQLITE_DONE)
+								perror("Database sqlite3_step error");
+							sqlite3_finalize(stmt1);
+						}
+						if(exit_code != SQLITE_DONE)
+							perror("Database sqlite3_step error");
+						sqlite3_finalize(stmt);
+						
+						for(int i = 0; i < nr_recoms; i++)
+						{
+							sprintf(sql, "select isbn, titlu, autor from books where isbn = %d;", recoms[i]);
+							exit_code = sqlite3_prepare_v2(DB, sql, -1, &stmt, NULL);
+							if(exit_code != SQLITE_OK)
+							{
+								perror("Error on select for recommendations\n");
+								strcpy(answer, "Eroare selectare recomandari");
+								break;
+							}
+							if((exit_code = sqlite3_step(stmt)) == SQLITE_ROW)
+							{
+								if(i == 0) 
+									sprintf(answer, "%d | %s by %s", sqlite3_column_int(stmt, 0), sqlite3_column_text(stmt, 1), sqlite3_column_text(stmt, 2));
+								else 
+								{
+									sprintf(aux, "\n%d | %s by %s", sqlite3_column_int(stmt, 0), sqlite3_column_text(stmt, 1), sqlite3_column_text(stmt, 2));
+									strcat(answer, aux);
+								}
+							}
+							exit_code = sqlite3_step(stmt);
+							if(exit_code != SQLITE_DONE)
+								perror("Database sqlite3_step error");
+							sqlite3_finalize(stmt);
 						}
 					}
 				}
